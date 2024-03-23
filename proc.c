@@ -88,6 +88,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->nice = 20; // Initial nice value
 
   release(&ptable.lock);
 
@@ -531,4 +532,91 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+// Get the nice value of the given pid
+// Success: return nice value
+// Failure: return -1
+int
+getnice(int pid)
+{
+  struct proc *p;
+  int nice = -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+      nice = p->nice;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return nice;
+}
+
+// Set the nice value of the given pid
+// Success: return 0
+// Failure: return -1
+int
+setnice(int pid, int value)
+{
+  cprintf("Input value is %d\n", value);
+  struct proc *p;
+  int flag = -1;
+  // Invalid value range
+  if(value < 0 || value > 39)
+    return flag;
+  
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+      p->nice = value;
+      flag = 0;
+      break;
+    }
+  }
+  release(&ptable.lock);
+  return flag;
+}
+
+void 
+ps(int pid)
+{
+  struct proc *p;
+  acquire(&ptable.lock);
+  // Print all process info
+  if(pid == 0){
+    cprintf("name \t pid \t state \t priority\n");
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state == RUNNING){
+        cprintf("%s \t %d \t RUNNING \t %d\n", p->name, p->pid, p->nice);
+      }
+      else if(p->state == SLEEPING){
+        cprintf("%s \t %d \t SLEEPING \t %d\n", p->name, p->pid, p->nice);
+      }
+      else if(p->state == RUNNABLE){
+        cprintf("%s \t %d \t RUNNABLE \t %d\n", p->name, p->pid, p->nice);
+      }
+    }
+  }
+  // Print pid process info
+  // No return value
+  else{
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->pid == pid){
+        cprintf("name \t pid \t state \t priority\n");
+        if(p->state == RUNNING){
+          cprintf("%s \t %d \t RUNNING \t %d\n", p->name, p->pid, p->nice);
+        }
+        else if(p->state == SLEEPING){
+          cprintf("%s \t %d \t SLEEPING \t %d\n", p->name, p->pid, p->nice);
+        }
+        else if(p->state == RUNNABLE){
+          cprintf("%s \t %d \t RUNNABLE \t %d\n", p->name, p->pid, p->nice);
+        }
+        break;
+      }
+    }
+  }
+  release(&ptable.lock);
 }
