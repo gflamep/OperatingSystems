@@ -579,6 +579,8 @@ setnice(int pid, int value)
   return flag;
 }
 
+// Print pid process info
+// No return value
 void 
 ps(int pid)
 {
@@ -599,8 +601,6 @@ ps(int pid)
       }
     }
   }
-  // Print pid process info
-  // No return value
   else{
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->pid == pid){

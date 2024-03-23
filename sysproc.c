@@ -114,4 +114,5 @@ sys_ps(void){
   if(argint(0, &pid) < 0)
     return -1;
   ps(pid);
+  return 0;
 }
