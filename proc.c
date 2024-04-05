@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "spinlock.h"
 
+#define INT_MAX 2147483647
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -19,6 +21,18 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+int weight[40] = 
+{
+  88761, 71755, 56483, 46273, 36291,
+  29154, 23254, 18705, 14949, 11916,
+  9548, 7620, 6100, 4904, 3906,
+  3121, 2501,  1991, 1586, 1277,
+  1024, 820, 655, 526, 423,
+  335, 272, 215, 172, 137,
+  110, 87, 70, 56, 45,
+  36, 29, 23, 18, 15
+};
 
 void
 pinit(void)
@@ -88,7 +102,10 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-  p->nice = 20; // Initial nice value
+  p->nice = 20;       // Initial nice value
+  p->weight = 1024;   // Initial weight
+  p->vruntime = 0;    // Initial vruntime
+  p->runtime = 0;     // Initial runtime
 
   release(&ptable.lock);
 
@@ -200,6 +217,8 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+  np->nice = curproc->nice;         // inherit nice value
+  np->vruntime = curproc->vruntime; // ingerit vruntime 
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -326,17 +345,39 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  
+
+  struct proc *minProc;
   for(;;){
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    // Find min vruntime from runnable processes
+    // get time slice for the process
+    // Context Switch to the Selected Process
+    // Update vruntime
+    // Yielding or Preemption
+    // Select the Next Process
 
+    // Loop over process table looking for process to run.
+    // Find min vruntime process from runnable processes
+
+    acquire(&ptable.lock);
+    bool found = false;
+    int totalWeight = 0;
+    int minvruntime = INT_MAX;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state == RUNNABLE) {
+        totalWeight += weight[p->nice];
+        if(p->vruntime < minvruntime){
+          minProc = p;
+          minvruntime = p->vruntime;
+          found = true;
+        }
+      }
+    }
+    // minProc found
+    // get time slice for the process
+    if(found){
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
@@ -351,7 +392,33 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+    else{
+      
+    }
     release(&ptable.lock);
+
+
+
+    // acquire(&ptable.lock);
+    // for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    //   if(p->state != RUNNABLE)
+    //     continue;
+
+    //   // Switch to chosen process.  It is the process's job
+    //   // to release ptable.lock and then reacquire it
+    //   // before jumping back to us.
+    //   c->proc = p;
+    //   switchuvm(p);
+    //   p->state = RUNNING;
+
+    //   swtch(&(c->scheduler), p->context);
+    //   switchkvm();
+
+    //   // Process is done running for now.
+    //   // It should have changed its p->state before coming back.
+    //   c->proc = 0;
+    // }
+    // release(&ptable.lock);
 
   }
 }
@@ -560,7 +627,6 @@ getnice(int pid)
 int
 setnice(int pid, int value)
 {
-  cprintf("Input value is %d\n", value);
   struct proc *p;
   int flag = -1;
   // Invalid value range
