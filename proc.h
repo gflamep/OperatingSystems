@@ -51,9 +51,11 @@ struct proc {
   char name[16];               // Process name (debugging)
   int nice;                    // Nice value of process
   int weight;                  // Weight of process
-  int runtime;                 // Actual Runtime of process
+  int runtime;                 // Runtime of process during timeslice
   int vruntime;                // Virtual runtime of process
-  int tick;                    // Tick value of process
+  int totalRuntime;            // Total runtime of process
+  int startTick;               // Start tick value of process
+  int timeslice;               // Timeslice of process
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -61,3 +63,5 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
+extern int weight[40];

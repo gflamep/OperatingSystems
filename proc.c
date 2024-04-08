@@ -9,6 +9,18 @@
 
 #define INT_MAX 2147483647
 
+int weight[40]= 
+{
+  88761, 71755, 56483, 46273, 36291,
+  29154, 23254, 18705, 14949, 11916,
+  9548, 7620, 6100, 4904, 3906,
+  3121, 2501,  1991, 1586, 1277,
+  1024, 820, 655, 526, 423,
+  335, 272, 215, 172, 137,
+  110, 87, 70, 56, 45,
+  36, 29, 23, 18, 15
+};
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -22,17 +34,7 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
-int weight[40] = 
-{
-  88761, 71755, 56483, 46273, 36291,
-  29154, 23254, 18705, 14949, 11916,
-  9548, 7620, 6100, 4904, 3906,
-  3121, 2501,  1991, 1586, 1277,
-  1024, 820, 655, 526, 423,
-  335, 272, 215, 172, 137,
-  110, 87, 70, 56, 45,
-  36, 29, 23, 18, 15
-};
+
 
 void
 pinit(void)
@@ -103,9 +105,11 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->nice = 20;       // Initial nice value
-  p->weight = 1024;   // Initial weight
   p->vruntime = 0;    // Initial vruntime
   p->runtime = 0;     // Initial runtime
+  p->totalRuntime = 0;
+  p->startTick = 0;
+  p->timeslice = 0;
 
   release(&ptable.lock);
 
@@ -218,7 +222,7 @@ fork(void)
   np->parent = curproc;
   *np->tf = *curproc->tf;
   np->nice = curproc->nice;         // inherit nice value
-  np->vruntime = curproc->vruntime; // ingerit vruntime 
+  np->vruntime = curproc->vruntime; // inherit vruntime 
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -362,19 +366,21 @@ scheduler(void)
     // Find min vruntime process from runnable processes
 
     acquire(&ptable.lock);
-    bool found = false;
+    int found = 0;
     int totalWeight = 0;
     int minvruntime = INT_MAX;
+    int schedulingLatency = 10;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state == RUNNABLE) {
         totalWeight += weight[p->nice];
         if(p->vruntime < minvruntime){
           minProc = p;
           minvruntime = p->vruntime;
-          found = true;
+          found = 1;
         }
       }
     }
+    p = minProc;
     // minProc found
     // get time slice for the process
     if(found){
@@ -382,6 +388,8 @@ scheduler(void)
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
       c->proc = p;
+      p->timeslice = schedulingLatency * 1000 * weight[p->nice] / totalWeight;
+      p->startTick = ticks*1000;
       switchuvm(p);
       p->state = RUNNING;
 
@@ -654,31 +662,31 @@ ps(int pid)
   acquire(&ptable.lock);
   // Print all process info
   if(pid == 0){
-    cprintf("name \t pid \t state \t priority\n");
+    cprintf("name \t pid \t state \t priority \t runtime/weight \t runtime \t vruntime \t tick %d\n", ticks*1000);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state == RUNNING){
-        cprintf("%s \t %d \t RUNNING \t %d\n", p->name, p->pid, p->nice);
+        cprintf("%s \t %d \t RUNNING \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
       }
       else if(p->state == SLEEPING){
-        cprintf("%s \t %d \t SLEEPING \t %d\n", p->name, p->pid, p->nice);
+        cprintf("%s \t %d \t SLEEPING \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
       }
       else if(p->state == RUNNABLE){
-        cprintf("%s \t %d \t RUNNABLE \t %d\n", p->name, p->pid, p->nice);
+        cprintf("%s \t %d \t RUNNABLE \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
       }
     }
   }
   else{
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->pid == pid){
-        cprintf("name \t pid \t state \t priority\n");
+        cprintf("name \t pid \t state \t priority \t runtime/weight \t runtime \t vruntime \t tick %d\n", ticks*1000);
         if(p->state == RUNNING){
-          cprintf("%s \t %d \t RUNNING \t %d\n", p->name, p->pid, p->nice);
+          cprintf("%s \t %d \t RUNNING \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
         }
         else if(p->state == SLEEPING){
-          cprintf("%s \t %d \t SLEEPING \t %d\n", p->name, p->pid, p->nice);
+          cprintf("%s \t %d \t SLEEPING \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
         }
         else if(p->state == RUNNABLE){
-          cprintf("%s \t %d \t RUNNABLE \t %d\n", p->name, p->pid, p->nice);
+          cprintf("%s \t %d \t RUNNABLE \t %d \t\t %d \t\t %d \t %d \t\n", p->name, p->pid, p->nice, p->totalRuntime/weight[p->nice], p->totalRuntime, p->vruntime);
         }
         break;
       }

@@ -101,10 +101,23 @@ trap(struct trapframe *tf)
     exit();
 
   // Force process to give up CPU on clock tick.
+  // But if runtime is smaller than runtime dont yield
   // If interrupts were on while locks held, would need to check nlock.
-  if(myproc() && myproc()->state == RUNNING &&
-     tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
+  if(myproc() && myproc()->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER){
+    // Update runtime and vruntime
+    myproc()->runtime += 1000;
+    myproc()->vruntime = ((myproc()->totalRuntime+myproc()->runtime) * weight[20]/weight[myproc()->nice]);
+    // if more than time slice -> enforce yield
+    if(myproc()->timeslice < myproc()->runtime){
+      // Update totalRuntime
+      myproc()->totalRuntime += myproc()->runtime;
+      cprintf("\ntotal runtime: %d | runtime: %d | timeslice : %d | vruntime: %d\n\n", myproc()->totalRuntime, myproc()->runtime, myproc()->timeslice, myproc()->vruntime);
+      myproc()->timeslice = 0;
+      myproc()->runtime = 0;
+      yield();
+    }
+    // else continue
+  }
 
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
