@@ -1,3 +1,31 @@
+#  Operating Systems XV6 project
+
+## PA1. Implement syscall (ps, getnice, setnice)
+
+## PA2. Implement CFS scheduling
+#### 1. A task with minimum virtual runtime is scheduled
+#### 2. Scheduled task gets time slice proportional to its {weight / total weight}
+#### 3. While the task is running, virtual runtime is updated
+#### 4. After task runs more than time slice, go back to 1
+
+#### Constraints
+weight = (predefined)
+
+
+$$timeslice = (10ticks) * (weight\ of\ current\ process) / (total\ weight\ of\ runnable\ processes)$$
+
+$$vruntime += runtime * (weight\ of\ nice\ 20) / (weight\ of\ current\ process)$$
+
+woken process -> vruntime = $(minimum\ vruntime\ of\ processes\ in\ ready\ queue\ -\ vruntime(1tick))$
+
+vruntime(1tick) = $(1tick) * (weight\ of\ nice\ 20) / (weight\ of\ current\ process)$
+
+Use millitick unit = $(1 tick) * 1000$
+
+
+
+___
+
 NOTE: we have stopped maintaining the x86 version of xv6, and switched
 our efforts to the RISC-V version
 (https://github.com/mit-pdos/xv6-riscv.git)
