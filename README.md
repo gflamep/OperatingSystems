@@ -12,9 +12,9 @@
 weight = (predefined)
 
 
-$$timeslice = (10ticks) * (weight\ of\ current\ process) / (total\ weight\ of\ runnable\ processes)$$
+timeslice = $(10ticks) * (weight\ of\ current\ process) / (total\ weight\ of\ runnable\ processes)$
 
-$$vruntime += runtime * (weight\ of\ nice\ 20) / (weight\ of\ current\ process)$$
+vruntime += $runtime * (weight\ of\ nice\ 20) / (weight\ of\ current\ process)$
 
 woken process -> vruntime = $(minimum\ vruntime\ of\ processes\ in\ ready\ queue\ -\ vruntime(1tick))$
 
