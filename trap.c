@@ -106,12 +106,12 @@ trap(struct trapframe *tf)
   if(myproc() && myproc()->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER){
     // Update runtime and vruntime
     myproc()->runtime += 1000;
-    myproc()->vruntime = ((myproc()->totalRuntime+myproc()->runtime) * weight[20]/weight[myproc()->nice]);
+    myproc()->totalRuntime += 1000;
+    myproc()->vruntime = ((myproc()->totalRuntime) * weight[20]/weight[myproc()->nice]);
+
     // if more than time slice -> enforce yield
     if(myproc()->timeslice < myproc()->runtime){
-      // Update totalRuntime
-      myproc()->totalRuntime += myproc()->runtime;
-      cprintf("\ntotal runtime: %d | runtime: %d | timeslice : %d | vruntime: %d\n\n", myproc()->totalRuntime, myproc()->runtime, myproc()->timeslice, myproc()->vruntime);
+      // cprintf("\ntotal runtime: %d | runtime: %d | timeslice : %d | vruntime: %d\n\n", myproc()->totalRuntime, myproc()->runtime, myproc()->timeslice, myproc()->vruntime);
       myproc()->timeslice = 0;
       myproc()->runtime = 0;
       yield();

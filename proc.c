@@ -221,8 +221,9 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
-  np->nice = curproc->nice;         // inherit nice value
-  np->vruntime = curproc->vruntime; // inherit vruntime 
+  np->nice = curproc->nice;                 // inherit nice value
+  np->vruntime = curproc->vruntime;         // inherit vruntime 
+  np->totalRuntime = curproc->totalRuntime; // inherit totalruntime 
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -401,7 +402,7 @@ scheduler(void)
       c->proc = 0;
     }
     else{
-      
+      // 
     }
     release(&ptable.lock);
 
@@ -534,10 +535,26 @@ static void
 wakeup1(void *chan)
 {
   struct proc *p;
+  int minvruntime = INT_MAX;
 
+  // Find minimum vruntime in ready queue
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state == RUNNABLE && p->vruntime < minvruntime) {
+      minvruntime = p->vruntime;
+    }
+  }
+  // Wake up process in chan that are sleeping
+  // Set vruntime to minimum vruntime - 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+    if(p->state == SLEEPING && p->chan == chan){
       p->state = RUNNABLE;
+      if(minvruntime == INT_MAX){
+        p->vruntime = 0;
+      } 
+      else{
+        p->vruntime = minvruntime - (1000 * weight[20] / weight[p->nice]);
+      }
+    }
 }
 
 // Wake up all processes sleeping on chan.
