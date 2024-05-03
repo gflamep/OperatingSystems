@@ -392,3 +392,8 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 //PAGEBREAK!
 // Blank page.
 
+
+
+uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
+  
+}
