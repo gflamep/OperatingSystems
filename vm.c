@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "elf.h"
 
+
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
@@ -393,7 +394,3 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 // Blank page.
 
 
-
-uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
-  
-}

@@ -6,8 +6,15 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "file.h"
+#include "fs.h"
+#include "sleeplock.h"
+
 
 #define INT_MAX 2147483647
+#define MMAPBASE 0x40000000
+
+struct mmap_area mmap_areas[64];
 
 int weight[40]= 
 {
@@ -28,13 +35,12 @@ struct {
 
 static struct proc *initproc;
 
+
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
-
-
 
 void
 pinit(void)
@@ -710,4 +716,118 @@ ps(int pid)
     }
   }
   release(&ptable.lock);
+}
+
+
+uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
+  struct proc *p = myproc();
+  struct file *f = 0;
+
+  struct mmap_area* area = 0;
+  // for (int i = 0; i < 64; i++) {
+  //   if (!p->mmap_areas[i].used) {
+  //     area = &p->mmap_areas[i];
+  //     break;
+  //   }
+  // }
+  if(!area)
+    return 0;
+
+  area->f = f;
+  area->addr = addr;
+  area->length = length;
+  area->offset = offset;
+  area->prot = prot;
+  area->flags = flags;
+  area->p = p;
+
+  // Invalid file descriptor check
+  if((fd < 0 && fd != -1) || fd >= NOFILE)
+    return 0;
+  if(fd != -1)
+    f = p->ofile[fd];
+
+  // File mapping condition check
+  if(!(flags & MAP_ANONYMOUS)){
+    // Protection of file not match protection parameters
+    if(((prot & PROT_READ) && !(f->readable)) || ((prot & PROT_WRITE) && !(f->writable)))
+      return 0;
+    // Offset and fd not match file mapping
+    if(offset == 0 || fd == -1)
+      return 0;
+  }
+  // Anonymous mapping condition check
+  else{
+    if(offset != 0 || fd != -1)
+      return 0;
+  }
+
+  // Check if the address is page-aligned
+  if (addr % PGSIZE != 0) {
+      return 0;
+  }
+
+  // Start address of mapping
+  uint start = addr + MMAPBASE;
+  uint end = start + length;
+
+  // cprintf("Reference Count: %d\n", f->ref);
+  // cprintf("Readable: %s\n", f->readable ? "Yes" : "No");
+  // cprintf("Writable: %s\n", f->writable ? "Yes" : "No");
+  // cprintf("Current Offset: %u\n", f->off);
+
+  // Private file mapping with MAP_POPULATE
+  if(!(flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    f->off = offset;
+    for (uint a = start; a < end; a += PGSIZE) {
+      // Return address of new page (4KB)
+      char *mem;
+      // Allocate free memory
+      if((mem =  kalloc()) == 0){
+        // Error
+        return 0;
+      }
+      memset(mem, 0, PGSIZE);
+      // Read file to memory
+      if (fileread(f, mem, PGSIZE) < 0) {
+        // Error handling
+        kfree(mem);
+        return 0;
+      }
+      // Map pages with memory
+      if(mappages(p->pgdir, (void *)a, PGSIZE, V2P(mem), prot) < 0){
+        // Error
+        kfree(mem);
+        return 0;
+      }
+    }
+  }
+  // Private file mapping without MAP_POPULATE
+  else if(!(flags & MAP_ANONYMOUS) && !(flags & MAP_POPULATE)){
+    return addr;
+  }
+  // Private anonymous mapping with MAP_POPULATE
+  else if((flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    return addr;
+  }
+  // Private anonymous mapping without MAP_POPULATE
+  else{
+    for (uint a = start; a < end; a += PGSIZE) {
+      // Return address of new page (4KB)
+      char *mem;
+      // Allocate free memory
+      if((mem =  kalloc()) == 0){
+        // Error
+        break;
+      }
+      memset(mem, 0, PGSIZE);
+      // Map pages with memory
+      if(mappages(p->pgdir, (void *)a, PGSIZE, V2P(mem), prot) < 0){
+        // Error
+        kfree(mem);
+        break;
+      }
+    }
+  }
+  return 1;
 }
