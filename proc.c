@@ -6,9 +6,9 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-#include "file.h"
-#include "fs.h"
 #include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 
 #define INT_MAX 2147483647
@@ -357,7 +357,7 @@ scheduler(void)
   struct cpu *c = mycpu();
   c->proc = 0;
 
-  struct proc *minProc;
+  struct proc *minProc = 0;
   for(;;){
     // Enable interrupts on this processor.
     sti();
@@ -723,15 +723,16 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   struct proc *p = myproc();
   struct file *f = 0;
 
-  struct mmap_area* area = 0;
+
+  struct mmap_area* area;
   // for (int i = 0; i < 64; i++) {
   //   if (!p->mmap_areas[i].used) {
   //     area = &p->mmap_areas[i];
   //     break;
   //   }
   // }
-  if(!area)
-    return 0;
+  // if(!area)
+  //   return 0;
 
   area->f = f;
   area->addr = addr;
@@ -746,16 +747,24 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
     return 0;
   if(fd != -1)
     f = p->ofile[fd];
-
+  
+  
+  
   // File mapping condition check
   if(!(flags & MAP_ANONYMOUS)){
+    // cprintf("File mapped\n");
     // Protection of file not match protection parameters
-    if(((prot & PROT_READ) && !(f->readable)) || ((prot & PROT_WRITE) && !(f->writable)))
+    if(((prot & PROT_READ) && !(f->readable))){
       return 0;
+    }
+    if(((prot & PROT_WRITE) && !(f->writable))){
+      return 0;
+    }
     // Offset and fd not match file mapping
     if(offset == 0 || fd == -1)
       return 0;
   }
+  
   // Anonymous mapping condition check
   else{
     if(offset != 0 || fd != -1)
@@ -774,10 +783,11 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   // cprintf("Reference Count: %d\n", f->ref);
   // cprintf("Readable: %s\n", f->readable ? "Yes" : "No");
   // cprintf("Writable: %s\n", f->writable ? "Yes" : "No");
-  // cprintf("Current Offset: %u\n", f->off);
+  // cprintf("Current Offset: %d\n", f->off);
 
   // Private file mapping with MAP_POPULATE
   if(!(flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    // cprintf(" Private file mapping with MAP_POPULATE\n");
     f->off = offset;
     for (uint a = start; a < end; a += PGSIZE) {
       // Return address of new page (4KB)
@@ -804,14 +814,18 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   }
   // Private file mapping without MAP_POPULATE
   else if(!(flags & MAP_ANONYMOUS) && !(flags & MAP_POPULATE)){
+    // cprintf(" Private file mapping without MAP_POPULATE\n");
+
     return addr;
   }
   // Private anonymous mapping with MAP_POPULATE
   else if((flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    // cprintf(" Private anonymous mapping with MAP_POPULATE\n");
     return addr;
   }
   // Private anonymous mapping without MAP_POPULATE
   else{
+    // cprintf(" Private anonymous mapping without MAP_POPULATE\n");
     for (uint a = start; a < end; a += PGSIZE) {
       // Return address of new page (4KB)
       char *mem;

@@ -119,11 +119,11 @@ sys_ps(void){
 
 int
 sys_mmap(void){
-  uint addr;
+  int addr;
   int length, prot, flags, fd, offset;
 
   if(argint(0, &addr) < 0 || argint(1, &length) < 0 || argint(2, &prot) < 0 || 
-      argint(3, &flags) < 0 || argint(5, &offset) < 0)
+      argint(3, &flags) < 0  || argint(4, &fd) < 0 || argint(5, &offset) < 0)
     return -1;
 
   return mmap(addr, length, prot, flags, fd, offset);

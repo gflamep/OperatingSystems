@@ -73,5 +73,5 @@ struct mmap_area {
   int offset;
   int prot;
   int flags;
-  struct proc *p // the process with this mmap_area
+  struct proc *p; // the process with this mmap_area
 };
