@@ -10,6 +10,10 @@
 #include "fs.h"
 #include "file.h"
 
+#define INT_MAX 		2147483647
+#define MMAPBASE 		0x40000000
+#define MMAP_AREA_MAX 	64
+
 struct mmap_area mmap_areas[MMAP_AREA_MAX];
 
 int weight[40]= 
@@ -246,18 +250,18 @@ fork(void)
   release(&ptable.lock);
 
   // Find parent's map_areas and make a copy to child
-  for (i = 0; i < MAX_MMAP_AREAS; i++)
+  for (i = 0; i < MMAP_AREA_MAX; i++)
     if (mmap_areas[i].p->pid == curproc->pid)
-      for(int j = 0; j < MAX_MMAP_AREAS; j++)
+      for(int j = 0; j < MMAP_AREA_MAX; j++)
         if(mmap_areas[j].used == 0){
-          mmap_areas[j]->f = mmap_areas[i].f;
-          mmap_areas[j]->addr = mmap_areas[i].addr;
-          mmap_areas[j]->length = mmap_areas[i].length;
-          mmap_areas[j]->offset = mmap_areas[i].offset;
-          mmap_areas[j]->prot = mmap_areas[i].prot;
-          mmap_areas[j]->flags = mmap_areas[i].flags;
-          mmap_areas[j]->p = np;
-          mmap_areas[j]->used = 1;
+          mmap_areas[j].f = mmap_areas[i].f;
+          mmap_areas[j].addr = mmap_areas[i].addr;
+          mmap_areas[j].length = mmap_areas[i].length;
+          mmap_areas[j].offset = mmap_areas[i].offset;
+          mmap_areas[j].prot = mmap_areas[i].prot;
+          mmap_areas[j].flags = mmap_areas[i].flags;
+          mmap_areas[j].p = np;
+          mmap_areas[j].used = 1;
           break;
         }
 

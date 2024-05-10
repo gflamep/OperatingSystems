@@ -15,6 +15,3 @@
 #define PROT_WRITE		0x2
 #define MAP_ANONYMOUS	0x1
 #define MAP_POPULATE	0x2
-#define INT_MAX 		2147483647
-#define MMAPBASE 		0x40000000
-#define MMAP_AREA_MAX 	64
