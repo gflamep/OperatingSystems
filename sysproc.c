@@ -128,3 +128,18 @@ sys_mmap(void){
 
   return mmap(addr, length, prot, flags, fd, offset);
 }
+
+int
+sys_munmap(void){
+  int addr;
+
+  if(argint(0, &addr) < 0)
+    return -1;
+
+  return munmap(addr);
+}
+
+int
+sys_freemem(void){
+  return freemem();
+}
