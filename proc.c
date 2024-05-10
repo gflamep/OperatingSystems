@@ -701,9 +701,10 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   struct file *f = 0;
 
   struct mmap_area* area = 0;
+  // Find unused mmap area
   for (int i = 0; i < MMAP_AREA_MAX; i++) {
-    if (mmap_areas[i]) {
-      area = &p->mmap_areas[i];
+    if (mmap_areas[i].used) {
+      area = &mmap_areas[i];
       break;
     }
   }
@@ -746,6 +747,7 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   area->prot = prot;
   area->flags = flags;
   area->p = p;
+  area->used = 1;
 
   // Start address of mapping
   uint start = addr + MMAPBASE;
@@ -824,7 +826,7 @@ int page_fault_handler(struct trapframe *tf){
 
   // Check read or write fault
   int read_fault = 0;
-  if(tf->err&2 == 0)
+  if((tf->err & 2) == 0)
     read_fault = 1;
 
   // Find according mapping region in mmap_area
@@ -834,7 +836,7 @@ int page_fault_handler(struct trapframe *tf){
     uint end = start + mmap_areas[i].length;
     if(mmap_areas[i].p->pid == p->pid){
       if(start <= fa && fa <= end){
-        area = &p->mmap_areas[i];
+        area = &mmap_areas[i];
         break;
       }
     }
@@ -842,20 +844,20 @@ int page_fault_handler(struct trapframe *tf){
 
   // If no corresponding mmap_area, terminate the process
   if (!area) {
-    cprintf("Page fault handler: No corresponding mmap_area for address 0x%x\n", va);
+    cprintf("Page fault handler: No corresponding mmap_area for address 0x%x\n", fa);
     p->killed = 1;
     return -1;
   }
 
   // If the fault was a write and the area is write-prohibited, terminate the process
   if (!read_fault && !(area->prot & PROT_WRITE)) {
-    cprintf("Page fault handler: Write fault at address 0x%x which is write-prohibited\n", va);
+    cprintf("Page fault handler: Write fault at address 0x%x which is write-prohibited\n", fa);
     p->killed = 1;
     return -1;
   }
 
   // Allocate a new physical page
-  va = PGROUNDDOWN(va);
+  fa = PGROUNDDOWN(fa);
   char *mem;
   if ((mem = kalloc()) < 0) {
     cprintf("Page fault handler: Out of memory\n");
@@ -865,7 +867,7 @@ int page_fault_handler(struct trapframe *tf){
   // Fill new page with 0
   memset(mem, 0, PGSIZE);
 
-  // File mapping, read the file into physical page
+  // File mapping, read file into physical page
   if (!(area->flags & MAP_ANONYMOUS)) {
     if (fileread(area->f, mem, PGSIZE) < 0) {
       kfree(mem);
@@ -874,12 +876,12 @@ int page_fault_handler(struct trapframe *tf){
     }
   }
 
-  // Map the new page
+  // Map new page
   int perm = PTE_U;
   if (area->prot & PROT_WRITE) {
     perm |= PTE_W;
   }
-  if (mappages(p->pgdir, (void *)va, PGSIZE, V2P(mem), perm) < 0) {
+  if (mappages(p->pgdir, (void *)fa, PGSIZE, V2P(mem), perm) < 0) {
     cprintf("Page fault handler: Failed to map pages\n");
     kfree(mem);
     p->killed = 1;
