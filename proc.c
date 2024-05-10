@@ -13,8 +13,8 @@
 
 #define INT_MAX 2147483647
 #define MMAPBASE 0x40000000
-
-struct mmap_area mmap_areas[64];
+#define MMAP_AREA_MAX 64
+struct mmap_area mmap_areas[MMAP_AREA_MAX];
 
 int weight[40]= 
 {
@@ -412,29 +412,6 @@ scheduler(void)
     }
     release(&ptable.lock);
 
-
-
-    // acquire(&ptable.lock);
-    // for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    //   if(p->state != RUNNABLE)
-    //     continue;
-
-    //   // Switch to chosen process.  It is the process's job
-    //   // to release ptable.lock and then reacquire it
-    //   // before jumping back to us.
-    //   c->proc = p;
-    //   switchuvm(p);
-    //   p->state = RUNNING;
-
-    //   swtch(&(c->scheduler), p->context);
-    //   switchkvm();
-
-    //   // Process is done running for now.
-    //   // It should have changed its p->state before coming back.
-    //   c->proc = 0;
-    // }
-    // release(&ptable.lock);
-
   }
 }
 
@@ -723,24 +700,15 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   struct proc *p = myproc();
   struct file *f = 0;
 
-
-  struct mmap_area* area;
-  // for (int i = 0; i < 64; i++) {
-  //   if (!p->mmap_areas[i].used) {
-  //     area = &p->mmap_areas[i];
-  //     break;
-  //   }
-  // }
-  // if(!area)
-  //   return 0;
-
-  area->f = f;
-  area->addr = addr;
-  area->length = length;
-  area->offset = offset;
-  area->prot = prot;
-  area->flags = flags;
-  area->p = p;
+  struct mmap_area* area = 0;
+  for (int i = 0; i < MMAP_AREA_MAX; i++) {
+    if (mmap_areas[i]) {
+      area = &p->mmap_areas[i];
+      break;
+    }
+  }
+  if(!area)
+    return 0;
 
   // Invalid file descriptor check
   if((fd < 0 && fd != -1) || fd >= NOFILE)
@@ -748,16 +716,11 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   if(fd != -1)
     f = p->ofile[fd];
   
-  
-  
   // File mapping condition check
   if(!(flags & MAP_ANONYMOUS)){
     // cprintf("File mapped\n");
     // Protection of file not match protection parameters
-    if(((prot & PROT_READ) && !(f->readable))){
-      return 0;
-    }
-    if(((prot & PROT_WRITE) && !(f->writable))){
+    if(((prot & PROT_READ) && !(f->readable)) || ((prot & PROT_WRITE) && !(f->writable))){
       return 0;
     }
     // Offset and fd not match file mapping
@@ -775,6 +738,14 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
   if (addr % PGSIZE != 0) {
       return 0;
   }
+
+  area->f = f;
+  area->addr = addr;
+  area->length = length;
+  area->offset = offset;
+  area->prot = prot;
+  area->flags = flags;
+  area->p = p;
 
   // Start address of mapping
   uint start = addr + MMAPBASE;
@@ -844,4 +815,76 @@ uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
     }
   }
   return 1;
+}
+
+int page_fault_handler(struct trapframe *tf){
+  // Get fault address (Virtual)
+  uint fa = rcr2();
+  struct proc *p = myproc();
+
+  // Check read or write fault
+  int read_fault = 0;
+  if(tf->err&2 == 0)
+    read_fault = 1;
+
+  // Find according mapping region in mmap_area
+  struct mmap_area *area = 0;
+  for(int i = 0; i < MMAP_AREA_MAX; i++){
+    uint start = mmap_areas[i].addr;
+    uint end = start + mmap_areas[i].length;
+    if(mmap_areas[i].p->pid == p->pid){
+      if(start <= fa && fa <= end){
+        area = &p->mmap_areas[i];
+        break;
+      }
+    }
+  }
+
+  // If no corresponding mmap_area, terminate the process
+  if (!area) {
+    cprintf("Page fault handler: No corresponding mmap_area for address 0x%x\n", va);
+    p->killed = 1;
+    return -1;
+  }
+
+  // If the fault was a write and the area is write-prohibited, terminate the process
+  if (!read_fault && !(area->prot & PROT_WRITE)) {
+    cprintf("Page fault handler: Write fault at address 0x%x which is write-prohibited\n", va);
+    p->killed = 1;
+    return -1;
+  }
+
+  // Allocate a new physical page
+  va = PGROUNDDOWN(va);
+  char *mem;
+  if ((mem = kalloc()) < 0) {
+    cprintf("Page fault handler: Out of memory\n");
+    p->killed = 1;
+    return -1;
+  }
+  // Fill new page with 0
+  memset(mem, 0, PGSIZE);
+
+  // File mapping, read the file into physical page
+  if (!(area->flags & MAP_ANONYMOUS)) {
+    if (fileread(area->f, mem, PGSIZE) < 0) {
+      kfree(mem);
+      p->killed = 1;
+      return -1;
+    }
+  }
+
+  // Map the new page
+  int perm = PTE_U;
+  if (area->prot & PROT_WRITE) {
+    perm |= PTE_W;
+  }
+  if (mappages(p->pgdir, (void *)va, PGSIZE, V2P(mem), perm) < 0) {
+    cprintf("Page fault handler: Failed to map pages\n");
+    kfree(mem);
+    p->killed = 1;
+    return -1;
+  }
+  
+  return 0;
 }
