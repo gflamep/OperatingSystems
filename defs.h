@@ -123,6 +123,9 @@ void            yield(void);
 int				getnice(int);
 int				setnice(int, int);
 void			ps(int);
+uint 			mmap(uint, int, int, int, int, int);
+int             munmap(uint);
+int             freemem(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -188,6 +191,8 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+pde_t* 			walkpgdir(pde_t *pgdir, const void *va, int alloc); //Should be pte_t
+int				mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

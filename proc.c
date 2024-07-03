@@ -6,8 +6,15 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
-#define INT_MAX 2147483647
+#define INT_MAX 		2147483647
+#define MMAPBASE 		0x40000000
+#define MMAP_AREA_MAX 	64
+
+struct mmap_area mmap_areas[MMAP_AREA_MAX];
 
 int weight[40]= 
 {
@@ -28,13 +35,12 @@ struct {
 
 static struct proc *initproc;
 
+
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
-
-
 
 void
 pinit(void)
@@ -243,6 +249,22 @@ fork(void)
 
   release(&ptable.lock);
 
+  // Find parent's map_areas and make a copy to child
+  for (i = 0; i < MMAP_AREA_MAX; i++)
+    if (mmap_areas[i].p->pid == curproc->pid)
+      for(int j = 0; j < MMAP_AREA_MAX; j++)
+        if(mmap_areas[j].used == 0){
+          mmap_areas[j].f = mmap_areas[i].f;
+          mmap_areas[j].addr = mmap_areas[i].addr;
+          mmap_areas[j].length = mmap_areas[i].length;
+          mmap_areas[j].offset = mmap_areas[i].offset;
+          mmap_areas[j].prot = mmap_areas[i].prot;
+          mmap_areas[j].flags = mmap_areas[i].flags;
+          mmap_areas[j].p = np;
+          mmap_areas[j].used = 1;
+          break;
+        }
+
   return pid;
 }
 
@@ -351,7 +373,7 @@ scheduler(void)
   struct cpu *c = mycpu();
   c->proc = 0;
 
-  struct proc *minProc;
+  struct proc *minProc = 0;
   for(;;){
     // Enable interrupts on this processor.
     sti();
@@ -405,29 +427,6 @@ scheduler(void)
       // 
     }
     release(&ptable.lock);
-
-
-
-    // acquire(&ptable.lock);
-    // for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    //   if(p->state != RUNNABLE)
-    //     continue;
-
-    //   // Switch to chosen process.  It is the process's job
-    //   // to release ptable.lock and then reacquire it
-    //   // before jumping back to us.
-    //   c->proc = p;
-    //   switchuvm(p);
-    //   p->state = RUNNING;
-
-    //   swtch(&(c->scheduler), p->context);
-    //   switchkvm();
-
-    //   // Process is done running for now.
-    //   // It should have changed its p->state before coming back.
-    //   c->proc = 0;
-    // }
-    // release(&ptable.lock);
 
   }
 }
@@ -710,4 +709,248 @@ ps(int pid)
     }
   }
   release(&ptable.lock);
+}
+
+
+uint mmap(uint addr, int length, int prot, int flags, int fd, int offset){
+  struct proc *p = myproc();
+  struct file *f = 0;
+
+  struct mmap_area* area = 0;
+  // Find unused mmap area
+  for (int i = 0; i < MMAP_AREA_MAX; i++) {
+    if (mmap_areas[i].used) {
+      area = &mmap_areas[i];
+      break;
+    }
+  }
+  if(!area)
+    return 0;
+
+  // Invalid file descriptor check
+  if((fd < 0 && fd != -1) || fd >= NOFILE)
+    return 0;
+  if(fd != -1)
+    f = p->ofile[fd];
+  
+  // File mapping condition check
+  if(!(flags & MAP_ANONYMOUS)){
+    // cprintf("File mapped\n");
+    // Protection of file not match protection parameters
+    if(((prot & PROT_READ) && !(f->readable)) || ((prot & PROT_WRITE) && !(f->writable))){
+      return 0;
+    }
+    // Offset and fd not match file mapping
+    if(offset == 0 || fd == -1)
+      return 0;
+  }
+  
+  // Anonymous mapping condition check
+  else{
+    if(offset != 0 || fd != -1)
+      return 0;
+  }
+
+  // Check if the address is page-aligned
+  if (addr % PGSIZE != 0) {
+      return 0;
+  }
+
+  area->f = f;
+  area->addr = addr;
+  area->length = length;
+  area->offset = offset;
+  area->prot = prot;
+  area->flags = flags;
+  area->p = p;
+  area->used = 1;
+
+  // Start address of mapping
+  uint start = addr + MMAPBASE;
+  uint end = start + length;
+
+  // cprintf("Reference Count: %d\n", f->ref);
+  // cprintf("Readable: %s\n", f->readable ? "Yes" : "No");
+  // cprintf("Writable: %s\n", f->writable ? "Yes" : "No");
+  // cprintf("Current Offset: %d\n", f->off);
+
+  // Private file mapping with MAP_POPULATE
+  if(!(flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    // cprintf(" Private file mapping with MAP_POPULATE\n");
+    f->off = offset;
+    for (uint a = start; a < end; a += PGSIZE){
+      // Return address of new page (4KB)
+      char *mem;
+      // Allocate free memory
+      if((mem =  kalloc()) == 0){
+        // Error
+        return 0;
+      }
+      memset(mem, 0, PGSIZE);
+      // Read file to memory
+      if (fileread(f, mem, PGSIZE) < 0){
+        // Error handling
+        kfree(mem);
+        return 0;
+      }
+      // Map pages with memory
+      if(mappages(p->pgdir, (void *)a, PGSIZE, V2P(mem), prot) < 0){
+        // Error
+        kfree(mem);
+        return 0;
+      }
+    }
+  }
+  // Private file mapping without MAP_POPULATE
+  else if(!(flags & MAP_ANONYMOUS) && !(flags & MAP_POPULATE)){
+    // cprintf(" Private file mapping without MAP_POPULATE\n");
+
+    return addr;
+  }
+  // Private anonymous mapping with MAP_POPULATE
+  else if((flags & MAP_ANONYMOUS) && (flags & MAP_POPULATE)){
+    // cprintf(" Private anonymous mapping with MAP_POPULATE\n");
+    return addr;
+  }
+  // Private anonymous mapping without MAP_POPULATE
+  else{
+    // cprintf(" Private anonymous mapping without MAP_POPULATE\n");
+    for (uint a = start; a < end; a += PGSIZE) {
+      // Return address of new page (4KB)
+      char *mem;
+      // Allocate free memory
+      if((mem =  kalloc()) == 0){
+        // Error
+        break;
+      }
+      memset(mem, 0, PGSIZE);
+      // Map pages with memory
+      if(mappages(p->pgdir, (void *)a, PGSIZE, V2P(mem), prot) < 0){
+        // Error
+        kfree(mem);
+        break;
+      }
+    }
+  }
+  return 1;
+}
+
+int page_fault_handler(struct trapframe *tf){
+  // Get fault address (Virtual)
+  uint fa = rcr2();
+  struct proc *p = myproc();
+
+  // Check read or write fault
+  int read_fault = 0;
+  if((tf->err & 2) == 0)
+    read_fault = 1;
+
+  // Find according mapping region in mmap_area
+  struct mmap_area *area = 0;
+  for(int i = 0; i < MMAP_AREA_MAX; i++){
+    uint start = mmap_areas[i].addr;
+    uint end = start + mmap_areas[i].length;
+    if(mmap_areas[i].p->pid == p->pid){
+      if(start <= fa && fa <= end){
+        area = &mmap_areas[i];
+        break;
+      }
+    }
+  }
+
+  // If no corresponding mmap_area, terminate the process
+  if (!area) {
+    // cprintf("Page fault handler: No corresponding mmap_area for address 0x%x\n", fa);
+    p->killed = 1;
+    return -1;
+  }
+
+  // If the fault was a write and the area is write-prohibited, terminate the process
+  if (!read_fault && !(area->prot & PROT_WRITE)) {
+    // cprintf("Page fault handler: Write fault at address 0x%x which is write-prohibited\n", fa);
+    p->killed = 1;
+    return -1;
+  }
+
+  // Allocate a new physical page
+  fa = PGROUNDDOWN(fa);
+  char *mem;
+  if ((mem = kalloc()) < 0) {
+    // cprintf("Page fault handler: Out of memory\n");
+    p->killed = 1;
+    return -1;
+  }
+  // Fill new page with 0
+  memset(mem, 0, PGSIZE);
+
+  // File mapping, read file into physical page
+  if (!(area->flags & MAP_ANONYMOUS)){
+    if (fileread(area->f, mem, PGSIZE) < 0){
+      kfree(mem);
+      p->killed = 1;
+      return -1;
+    }
+  }
+
+  // Map new page
+  int perm = PTE_U;
+  if (area->prot & PROT_WRITE){
+    perm |= PTE_W;
+  }
+  if (mappages(p->pgdir, (void *)fa, PGSIZE, V2P(mem), perm) < 0){
+    // cprintf("Page fault handler: Failed to map pages\n");
+    kfree(mem);
+    p->killed = 1;
+    return -1;
+  }
+  
+  return 0;
+}
+
+// Unmap corresponding mapping area
+int munmap(uint addr){
+  struct proc *p = myproc();
+  // Find according mapping region in mmap_area
+  struct mmap_area *area = 0;
+  for(int i = 0; i < MMAP_AREA_MAX; i++){
+    if((mmap_areas[i].p->pid == p->pid) && (mmap_areas[i].addr == addr)){
+        area = &mmap_areas[i];
+        break;
+    }
+  }
+  // Mapping area not found
+  if(!area)
+    return -1;
+
+  uint start = area->addr + MMAPBASE;
+  uint end = start + area->length;
+  pte_t *pte;
+  for (uint a = start; a < end; a += PGSIZE){
+    // Find page table entry
+    if ((pte = walkpgdir(p->pgdir, (void *)a, 0)) == 0) {
+      continue;
+    }
+    if (*pte & PTE_P) {
+      char* v = P2V(PTE_ADDR(*pte));
+      memset(v, 1, PGSIZE);
+      // free physical page and page table
+      kfree(v);
+      *pte = 0;
+    }
+  }
+
+  area->p = 0;
+  area->f = 0;
+  area->addr = 0;
+  area->length = 0;
+  area->offset = 0;
+  area->prot = 0;
+  area->flags = 0;
+  area->used = 0;
+
+  return 1;
+}
+
+int freemem(){
+  return getfreemempages();
 }
